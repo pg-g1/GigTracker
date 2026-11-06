@@ -1,0 +1,19 @@
+workflows:
+  ios-build:
+    name: Build GigTracker
+    instance_type: mac_mini_m1
+    scripts:
+      - name: Generate Xcode Project
+        script: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Build Unsigned App
+        script: |
+          xcodebuild clean build -project GigTracker.xcodeproj -scheme GigTracker -configuration Release -sdk iphoneos CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -derivedDataPath build
+      - name: Package IPA
+        script: |
+          mkdir -p Payload
+          mv build/Build/Products/Release-iphoneos/GigTracker.app Payload/
+          zip -r GigTracker.ipa Payload
+    artifacts:
+      - GigTracker.ipa
