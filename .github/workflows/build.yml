@@ -1,0 +1,33 @@
+name: Build iOS App
+
+on: 
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: Install XcodeGen
+        run: brew install xcodegen
+        
+      - name: Generate Xcode Project
+        run: xcodegen generate
+        
+      - name: Build Unsigned App
+        run: |
+          xcodebuild clean build -project GigTracker.xcodeproj -scheme GigTracker -configuration Release -sdk iphoneos CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -derivedDataPath build
+          
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          mv build/Build/Products/Release-iphoneos/GigTracker.app Payload/
+          zip -r GigTracker.ipa Payload
+          
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: GigTracker-App
+          path: GigTracker.ipa
