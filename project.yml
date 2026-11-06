@@ -1,0 +1,14 @@
+name: GigTracker
+options:
+  bundleIdPrefix: com.gigtracker
+targets:
+  GigTracker:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources: [Sources]
+    settings:
+      INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "Needed to track business kilometers automatically."
+      INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Needed to track business kilometers while the app is open."
+      INFOPLIST_KEY_NSMotionUsageDescription: "Needed to detect when you start driving."
+      INFOPLIST_KEY_UIBackgroundModes: "location"
