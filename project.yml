@@ -15,3 +15,6 @@ targets:
         NSLocationAlwaysAndWhenInUseUsageDescription: "Needed to track business kilometers automatically."
         NSLocationWhenInUseUsageDescription: "Needed to track business kilometers while the app is open."
         NSMotionUsageDescription: "Needed to detect when you start driving."
+        UILaunchScreen:
+          UIColorName: ""
+          UIImageName: ""
