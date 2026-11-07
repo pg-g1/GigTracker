@@ -2,7 +2,6 @@ import SwiftUI
 import SwiftData
 import MapKit
 
-// MARK: - Main Tab Layout
 struct ContentView: View {
     @StateObject private var locationManager = LocationManager()
     @Environment(\.modelContext) private var modelContext
@@ -21,9 +20,7 @@ struct ContentView: View {
         .onAppear {
             locationManager.requestPermissions()
             locationManager.onTripFinished = { distance, start, end, date, route in
-                // Only save trips if distance is greater than 0
-                guard distance > 0.01 else { return }
-                
+                // Fixed: Allows short test blocks to save immediately without filtering out small distances
                 let codableRoute = route.map { CodableCoordinate($0) }
                 let routeData = try? JSONEncoder().encode(codableRoute)
                 
@@ -34,11 +31,10 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Tab 1: Dashboard
 struct DashboardView: View {
     @ObservedObject var locationManager: LocationManager
     @State private var odometerInput: String = ""
-    @FocusState private var isKeyboardFocused: Bool // Controls keyboard dismissal
+    @FocusState private var isKeyboardFocused: Bool
     
     var body: some View {
         NavigationStack {
@@ -67,17 +63,17 @@ struct DashboardView: View {
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                             Spacer()
-                            TextField("e.g. 45000", text: $odometerInput)
-                                .keyboardType(.decimalPad)
+                            TextField("e.g. 81126.23", text: $odometerInput)
+                                .keyboardType(.decimalPad) // Supports decimals like .23
                                 .textFieldStyle(.roundedBorder)
-                                .frame(width: 120)
-                                .focused($isKeyboardFocused) // Binds focus state
+                                .frame(width: 130)
+                                .focused($isKeyboardFocused)
                             
                             Button("Set") {
                                 if let val = Double(odometerInput) {
                                     locationManager.saveBaseOdometer(reading: val)
                                     odometerInput = ""
-                                    isKeyboardFocused = false // Dismiss keyboard on tap
+                                    isKeyboardFocused = false
                                 }
                             }
                             .buttonStyle(.borderedProminent)
@@ -100,7 +96,6 @@ struct DashboardView: View {
                     .cornerRadius(16)
                     .padding(.horizontal)
                     
-                    // Start/Stop Button
                     Button(action: {
                         locationManager.toggleManualTracking()
                     }) {
@@ -119,7 +114,6 @@ struct DashboardView: View {
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Gig Tracker")
             .navigationBarTitleDisplayMode(.inline)
-            // Adds a "Done" toolbar button above the number pad so it never gets stuck
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -132,7 +126,6 @@ struct DashboardView: View {
     }
 }
 
-// MARK: - Tab 2: Logbook (Trips List)
 struct TripsListView: View {
     @Query(sort: \Trip.date, order: .reverse) var trips: [Trip]
     @Environment(\.modelContext) private var modelContext
@@ -141,7 +134,7 @@ struct TripsListView: View {
         NavigationStack {
             List {
                 if trips.isEmpty {
-                    ContentUnavailableView("No Trips Logged", systemImage: "map", description: Text("Completed shifts will appear here for CRA tax classification."))
+                    ContentUnavailableView("No Trips Logged", systemImage: "map", description: Text("Completed shifts will appear here automatically for CRA tax classification."))
                         .listRowBackground(Color.clear)
                 }
                 
@@ -179,7 +172,6 @@ struct TripsListView: View {
     }
 }
 
-// MARK: - Trip Detail View (Classification & Map)
 struct TripDetailView: View {
     @Bindable var trip: Trip
     
@@ -238,7 +230,6 @@ struct TripDetailView: View {
     }
 }
 
-// MARK: - Tab 3: Reports (CRA Export)
 struct ReportsView: View {
     @Query(sort: \Trip.date, order: .reverse) var trips: [Trip]
     @State private var csvURL: URL?
