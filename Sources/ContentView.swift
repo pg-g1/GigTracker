@@ -1,128 +1,263 @@
 import SwiftUI
-import MapKit
 import SwiftData
+import MapKit
 
+// MARK: - Main Tab Layout
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Trip.date, order: .reverse) private var savedTrips: [Trip]
-    
     @StateObject private var locationManager = LocationManager()
-    @State private var newOdometerInput: String = ""
-    
-    var computedCurrentOdometer: Double {
-        return locationManager.baseOdometerReading + locationManager.businessKilometersDriven
-    }
+    @Environment(\.modelContext) private var modelContext
     
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    
-                    VStack {
-                        Text("Current Virtual Odometer")
-                            .font(.headline)
-                            .foregroundColor(.gray)
-                        Text("\(computedCurrentOdometer, specifier: "%.2f") km")
-                            .font(.system(size: 36, weight: .bold, design: .rounded))
-                    }
-                    .padding()
-                    .frame(maxWidth: .infinity)
-                    .background(RoundedRectangle(cornerRadius: 15).fill(Color(UIColor.systemGray6)))
-                    .padding(.horizontal)
-                    
-                    Map {
-                        UserAnnotation()
-                        if !locationManager.currentTripRoute.isEmpty {
-                            MapPolyline(coordinates: locationManager.currentTripRoute)
-                                .stroke(.blue, lineWidth: 5)
-                        }
-                    }
-                    .mapControls {
-                        MapUserLocationButton()
-                    }
+        TabView {
+            DashboardView(locationManager: locationManager)
+                .tabItem { Label("Drive", systemImage: "car.fill") }
+            
+            TripsListView()
+                .tabItem { Label("Logbook", systemImage: "list.bullet.clipboard") }
+            
+            ReportsView()
+                .tabItem { Label("Reports", systemImage: "square.and.arrow.up") }
+        }
+        .onAppear {
+            locationManager.requestPermissions()
+            // Listen for finished trips and save them to the database
+            locationManager.onTripFinished = { distance, start, end, date, route in
+                let codableRoute = route.map { CodableCoordinate($0) }
+                let routeData = try? JSONEncoder().encode(codableRoute)
+                
+                let newTrip = Trip(date: date, distanceInKm: distance, startAddress: start, endAddress: end, tripType: "Unclassified", routeData: routeData)
+                modelContext.insert(newTrip)
+            }
+        }
+    }
+}
+
+// MARK: - Tab 1: Dashboard
+struct DashboardView: View {
+    @ObservedObject var locationManager: LocationManager
+    @State private var odometerInput: String = ""
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                // Fixed proportion map
+                Map(coordinateRegion: $locationManager.region, showsUserLocation: true)
                     .frame(height: 250)
-                    .cornerRadius(15)
+                    .clipShape(RoundedRectangle(cornerRadius: 15))
                     .padding(.horizontal)
-                    
-                    VStack(alignment: .leading) {
-                        Text("Base Dashboard Odometer")
-                            .font(.subheadline)
-                        HStack {
-                            TextField("e.g. 45000", text: $newOdometerInput)
-                                .keyboardType(.decimalPad)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                            
-                            Button("Update") {
-                                if let val = Double(newOdometerInput) {
-                                    locationManager.saveBaseOdometer(reading: val)
-                                    newOdometerInput = ""
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
+                
+                // Odometer & Shift Stats
+                VStack(spacing: 15) {
+                    HStack {
+                        Text("Shift Distance:")
+                            .font(.headline)
+                        Spacer()
+                        Text(String(format: "%.2f km", locationManager.currentShiftDistance))
+                            .font(.title3).bold()
                     }
-                    .padding(.horizontal)
                     
-                    Button(action: {
-                        locationManager.toggleManualTracking()
-                    }) {
-                        Text(locationManager.isCurrentlyDriving ? "Stop Gig Shift" : "Start Gig Shift")
-                            .font(.title3)
-                            .bold()
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(locationManager.isCurrentlyDriving ? Color.red : Color.green)
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
-                    }
-                    .padding(.horizontal)
-                    
-                    Divider().padding(.vertical, 10)
-                    
-                    VStack(alignment: .leading) {
-                        Text("Recent Trips")
-                            .font(.title2)
-                            .bold()
-                            .padding(.horizontal)
+                    HStack {
+                        TextField("Base Odometer (km)", text: $odometerInput)
+                            .keyboardType(.decimalPad)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
                         
-                        if savedTrips.isEmpty {
-                            Text("No trips logged yet.")
-                                .foregroundColor(.gray)
-                                .padding(.horizontal)
-                        } else {
-                            ForEach(savedTrips) { trip in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("\(trip.date.formatted(date: .abbreviated, time: .shortened))")
-                                        .font(.subheadline)
-                                        .foregroundColor(.blue)
-                                    Text("From: \(trip.startAddress)")
-                                        .font(.caption)
-                                    Text("To: \(trip.endAddress)")
-                                        .font(.caption)
-                                    Text("Distance: \(trip.distanceInKm, specifier: "%.2f") km")
-                                        .font(.subheadline).bold()
-                                }
-                                .padding()
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(RoundedRectangle(cornerRadius: 10).fill(Color(UIColor.systemGray6)))
-                                .padding(.horizontal)
+                        Button("Set") {
+                            if let val = Double(odometerInput) {
+                                locationManager.saveBaseOdometer(reading: val)
                             }
                         }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    
+                    HStack {
+                        Text("Current Odometer:")
+                            .font(.subheadline).foregroundColor(.gray)
+                        Spacer()
+                        Text(String(format: "%.2f km", locationManager.baseOdometerReading + locationManager.currentShiftDistance))
+                            .font(.headline)
                     }
                 }
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(15)
+                .padding(.horizontal)
+                
+                Spacer()
+                
+                // Big properly sized button
+                Button(action: {
+                    locationManager.toggleManualTracking()
+                }) {
+                    Text(locationManager.isCurrentlyDriving ? "End Shift" : "Start Shift")
+                        .font(.title2).bold()
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(locationManager.isCurrentlyDriving ? Color.red : Color.green)
+                        .cornerRadius(15)
+                }
+                .padding(.horizontal)
                 .padding(.bottom, 30)
             }
             .navigationTitle("Gig Tracker")
-            .onAppear {
-                locationManager.requestPermissions()
-                
-                locationManager.onTripFinished = { distance, start, end, date in
-                    if distance > 0.1 {
-                        let newTrip = Trip(date: date, distanceInKm: distance, startAddress: start, endAddress: end)
-                        modelContext.insert(newTrip)
+        }
+    }
+}
+
+// MARK: - Tab 2: Logbook (Trips List)
+struct TripsListView: View {
+    @Query(sort: \Trip.date, order: .reverse) var trips: [Trip]
+    @Environment(\.modelContext) private var modelContext
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(trips) { trip in
+                    NavigationLink(destination: TripDetailView(trip: trip)) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack {
+                                Text(trip.date.formatted(date: .abbreviated, time: .shortened))
+                                    .font(.subheadline).bold()
+                                Spacer()
+                                Text(String(format: "%.2f km", trip.distanceInKm))
+                                    .font(.subheadline)
+                            }
+                            Text(trip.tripType)
+                                .font(.caption)
+                                .foregroundColor(trip.tripType == "Business" ? .green : (trip.tripType == "Personal" ? .blue : .red))
+                        }
+                    }
+                }
+                .onDelete { indexSet in
+                    for index in indexSet {
+                        modelContext.delete(trips[index])
                     }
                 }
             }
+            .navigationTitle("Trip Log")
+        }
+    }
+}
+
+// MARK: - Trip Detail View (Classification & Map)
+struct TripDetailView: View {
+    @Bindable var trip: Trip
+    
+    var routeCoordinates: [CLLocationCoordinate2D] {
+        guard let data = trip.routeData,
+              let decoded = try? JSONDecoder().decode([CodableCoordinate].self, from: data) else { return [] }
+        return decoded.map { $0.coordinate }
+    }
+    
+    var body: some View {
+        Form {
+            Section(header: Text("Classify Trip")) {
+                Picker("Trip Type", selection: $trip.tripType) {
+                    Text("Unclassified").tag("Unclassified")
+                    Text("Business").tag("Business")
+                    Text("Personal").tag("Personal")
+                }
+                .pickerStyle(.segmented)
+            }
+            
+            Section(header: Text("Trip Details")) {
+                Text("Start: \(trip.startAddress)")
+                Text("End: \(trip.endAddress)")
+                Text("Distance: \(String(format: "%.2f km", trip.distanceInKm))")
+            }
+            
+            if !routeCoordinates.isEmpty {
+                Section(header: Text("Route Map")) {
+                    Map {
+                        MapPolyline(coordinates: routeCoordinates)
+                            .stroke(.blue, lineWidth: 4)
+                        if let first = routeCoordinates.first {
+                            Marker("Start", coordinate: first).tint(.green)
+                        }
+                        if let last = routeCoordinates.last {
+                            Marker("End", coordinate: last).tint(.red)
+                        }
+                    }
+                    .frame(height: 250)
+                }
+            }
+        }
+        .navigationTitle("Trip Info")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - Tab 3: Reports (CRA Export)
+struct ReportsView: View {
+    @Query(sort: \Trip.date, order: .reverse) var trips: [Trip]
+    @State private var csvURL: URL?
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 30) {
+                Image(systemName: "doc.text.magnifyingglass")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 80, height: 80)
+                    .foregroundColor(.blue)
+                
+                Text("CRA Logbook Export")
+                    .font(.title2).bold()
+                
+                Text("Generate a CSV spreadsheet of all your logged trips for tax purposes.")
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.gray)
+                    .padding(.horizontal)
+                
+                if let url = csvURL {
+                    ShareLink(item: url) {
+                        Text("Export CSV File")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                            .cornerRadius(15)
+                    }
+                    .padding(.horizontal)
+                } else {
+                    Button(action: generateCSV) {
+                        Text("Generate Report")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.green)
+                            .cornerRadius(15)
+                    }
+                    .padding(.horizontal)
+                }
+                
+                Spacer()
+            }
+            .padding(.top, 50)
+            .navigationTitle("Reports")
+        }
+    }
+    
+    func generateCSV() {
+        var csvString = "Date,Type,Distance (km),Start Address,End Address\n"
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        
+        for trip in trips {
+            let dateStr = formatter.string(from: trip.date)
+            let safeStart = trip.startAddress.replacingOccurrences(of: ",", with: " ")
+            let safeEnd = trip.endAddress.replacingOccurrences(of: ",", with: " ")
+            csvString += "\(dateStr),\(trip.tripType),\(String(format: "%.2f", trip.distanceInKm)),\(safeStart),\(safeEnd)\n"
+        }
+        
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("CRA_Mileage_Log.csv")
+        do {
+            try csvString.write(to: tempURL, atomically: true, encoding: .utf8)
+            csvURL = tempURL
+        } catch {
+            print("Failed to create CSV")
         }
     }
 }
