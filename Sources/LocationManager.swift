@@ -14,7 +14,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     )
     @Published var currentShiftDistance: Double = 0.0
     
-    // Fixed: Properly saves precise decimal values (e.g. .23)
     @Published var baseOdometerReading: Double {
         didSet {
             UserDefaults.standard.set(baseOdometerReading, forKey: "saved_base_odometer")
@@ -49,20 +48,16 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         startAutomatedMotionDetection()
     }
     
-    // Fully automated background drive detection
     private func startAutomatedMotionDetection() {
         if CMMotionActivityManager.isActivityAvailable() {
             motionActivityManager.startActivityUpdates(to: .main) { [weak self] activity in
                 guard let self = self, let activity = activity else { return }
                 
-                // If the phone detects you are driving and you aren't already tracking, auto-start!
                 if activity.automotive && !self.isCurrentlyDriving {
                     print("🚗 Motion detected driving: Auto-starting shift...")
                     self.startShift()
                 } 
-                // If you have been stationary for a while, auto-stop
                 else if (activity.stationary || activity.walking) && self.isCurrentlyDriving {
-                    // Give a brief delay buffer to ensure you actually stopped
                     DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
                         if activity.stationary && self.isCurrentlyDriving {
                             print("🛑 Stationary detected: Auto-stopping shift...")
@@ -102,7 +97,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         isCurrentlyDriving = false
         endLocation = manager.location ?? lastLocation
         
-        // Update permanent base odometer with the driven distance
         baseOdometerReading += currentShiftDistance
         
         let capturedDistance = currentShiftDistance
@@ -141,17 +135,22 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
-        lastLocation = location
         
         if isTracking {
-            if let previous = lastLocation, location.timestamp.timeIntervalSince(previous.timestamp) < 10 {
-                let distanceDelta = location.distance(from: previous)
-                if distanceDelta > 1.0 { // Filter minor GPS jitter
-                    currentShiftDistance += (distanceDelta / 1000.0)
+            if let previous = lastLocation {
+                // Check if timestamp is reasonable (avoids massive jumps from old cached GPS data)
+                if location.timestamp.timeIntervalSince(previous.timestamp) < 60 {
+                    let distanceDelta = location.distance(from: previous)
+                    if distanceDelta > 2.0 { // Filter minor GPS jitter
+                        currentShiftDistance += (distanceDelta / 1000.0)
+                    }
                 }
             }
             currentTripRoute.append(location.coordinate)
         }
+        
+        // FIX: This MUST happen AFTER calculating the distance!
+        lastLocation = location
         
         DispatchQueue.main.async {
             self.region = MKCoordinateRegion(center: location.coordinate, span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))
