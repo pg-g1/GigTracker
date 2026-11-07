@@ -4,6 +4,7 @@ import MapKit
 
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
+    private let geocoder = CLGeocoder()
     
     @Published var region = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 49.2827, longitude: -123.1207),
@@ -13,14 +14,15 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var baseOdometerReading: Double = 0.0
     @Published var businessKilometersDriven: Double = 0.0
     @Published var isTracking = false
+    @Published var isCurrentlyDriving = false // Restored button state variable
     @Published var currentTripRoute: [CLLocationCoordinate2D] = []
     
     private var lastLocation: CLLocation?
     var startLocation: CLLocation?
     var endLocation: CLLocation?
     
-    // The missing closure your dashboard uses to log the trip
-    var onTripFinished: ((Double, CLLocation?, CLLocation?, Date) -> Void)?
+    // Updated to send String addresses to match the logbook's expectations
+    var onTripFinished: ((Double, String, String, Date) -> Void)?
     
     override init() {
         super.init()
@@ -36,13 +38,22 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.startUpdatingLocation()
     }
     
-    // The missing function your dashboard uses to update the odometer
     func saveBaseOdometer(reading: Double) {
         baseOdometerReading = reading
     }
     
+    // Restored toggle function for the dashboard button
+    func toggleManualTracking() {
+        if isCurrentlyDriving {
+            stopShift()
+        } else {
+            startShift()
+        }
+    }
+    
     func startShift() {
         isTracking = true
+        isCurrentlyDriving = true
         currentShiftDistance = 0.0
         currentTripRoute.removeAll()
         startLocation = manager.location
@@ -55,11 +66,39 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     func stopShift() {
         isTracking = false
+        isCurrentlyDriving = false
         endLocation = manager.location
         businessKilometersDriven += currentShiftDistance
         
-        // Trigger the dashboard update when the shift ends
-        onTripFinished?(currentShiftDistance, startLocation, endLocation, Date())
+        // Convert GPS coordinates to physical street addresses before saving
+        let group = DispatchGroup()
+        var startAddressString = "Unknown Start Location"
+        var endAddressString = "Unknown End Location"
+        
+        if let start = startLocation {
+            group.enter()
+            geocoder.reverseGeocodeLocation(start) { placemarks, error in
+                if let p = placemarks?.first {
+                    startAddressString = [p.subThoroughfare, p.thoroughfare, p.locality].compactMap { $0 }.joined(separator: " ")
+                }
+                group.leave()
+            }
+        }
+        
+        if let end = endLocation {
+            group.enter()
+            geocoder.reverseGeocodeLocation(end) { placemarks, error in
+                if let p = placemarks?.first {
+                    endAddressString = [p.subThoroughfare, p.thoroughfare, p.locality].compactMap { $0 }.joined(separator: " ")
+                }
+                group.leave()
+            }
+        }
+        
+        // Wait for addresses to resolve, then send the final data to the logbook
+        group.notify(queue: .main) {
+            self.onTripFinished?(self.currentShiftDistance, startAddressString, endAddressString, Date())
+        }
     }
     
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
