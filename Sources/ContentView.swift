@@ -11,12 +11,15 @@ struct ContentView: View {
         TabView {
             DashboardView(locationManager: locationManager)
                 .tabItem { Label("Drive", systemImage: "car.fill") }
+                .toolbarBackground(.visible, for: .tabBar) // Forces solid tab bar
             
             TripsListView()
                 .tabItem { Label("Logbook", systemImage: "list.bullet.clipboard") }
+                .toolbarBackground(.visible, for: .tabBar)
             
             ReportsView()
                 .tabItem { Label("Reports", systemImage: "square.and.arrow.up") }
+                .toolbarBackground(.visible, for: .tabBar)
         }
         .onAppear {
             locationManager.requestPermissions()
@@ -38,71 +41,72 @@ struct DashboardView: View {
     
     var body: some View {
         NavigationStack {
-            // FIX: Wrapping in a ScrollView fixes the transparent Tab Bar overlap
-            ScrollView { 
-                VStack(spacing: 20) {
-                    // Map
-                    Map(coordinateRegion: $locationManager.region, showsUserLocation: true)
-                        .frame(height: 250)
-                        .clipShape(RoundedRectangle(cornerRadius: 15))
-                        .padding(.horizontal)
-                        .padding(.top, 10)
-                    
-                    // Odometer & Shift Stats
-                    VStack(spacing: 15) {
-                        HStack {
-                            Text("Shift Distance:")
-                                .font(.headline)
-                            Spacer()
-                            Text(String(format: "%.2f km", locationManager.currentShiftDistance))
-                                .font(.title3).bold()
-                        }
-                        
-                        HStack {
-                            TextField("Base Odometer", text: $odometerInput)
-                                .keyboardType(.decimalPad)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                            
-                            Button("Set") {
-                                if let val = Double(odometerInput) {
-                                    locationManager.saveBaseOdometer(reading: val)
-                                    odometerInput = "" // Clear the box after saving
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                        
-                        HStack {
-                            Text("Current Odometer:")
-                                .font(.subheadline).foregroundColor(.gray)
-                            Spacer()
-                            Text(String(format: "%.2f km", locationManager.baseOdometerReading + locationManager.currentShiftDistance))
-                                .font(.headline)
-                        }
-                    }
-                    .padding()
-                    .background(Color(.systemGray6))
-                    .cornerRadius(15)
-                    .padding(.horizontal)
-                    
-                    // Start/Stop Button
-                    Button(action: {
-                        locationManager.toggleManualTracking()
-                    }) {
-                        Text(locationManager.isCurrentlyDriving ? "End Shift" : "Start Shift")
-                            .font(.title2).bold()
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(locationManager.isCurrentlyDriving ? Color.red : Color.green)
-                            .cornerRadius(15)
-                    }
+            // FIX: Removed ScrollView. A dashboard should be locked in place.
+            VStack(spacing: 15) {
+                // Map
+                Map(coordinateRegion: $locationManager.region, showsUserLocation: true)
+                    .frame(height: 220) // Slightly smaller to ensure a perfect fit
+                    .clipShape(RoundedRectangle(cornerRadius: 15))
                     .padding(.horizontal)
                     .padding(.top, 10)
-                    .padding(.bottom, 40) // Extra padding so it sits cleanly above the tab bar
+                
+                // Odometer & Shift Stats
+                VStack(spacing: 15) {
+                    HStack {
+                        Text("Shift Distance:")
+                            .font(.headline)
+                        Spacer()
+                        Text(String(format: "%.2f km", locationManager.currentShiftDistance))
+                            .font(.title3).bold()
+                    }
+                    
+                    HStack {
+                        TextField("Base Odometer", text: $odometerInput)
+                            .keyboardType(.decimalPad)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                        
+                        Button("Set") {
+                            if let val = Double(odometerInput) {
+                                locationManager.saveBaseOdometer(reading: val)
+                                odometerInput = ""
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    
+                    HStack {
+                        Text("Current Odometer:")
+                            .font(.subheadline).foregroundColor(.gray)
+                        Spacer()
+                        Text(String(format: "%.2f km", locationManager.baseOdometerReading + locationManager.currentShiftDistance))
+                            .font(.headline)
+                    }
                 }
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(15)
+                .padding(.horizontal)
+                
+                Spacer() // Pushes the button cleanly to the bottom
+                
+                // Start/Stop Button
+                Button(action: {
+                    locationManager.toggleManualTracking()
+                }) {
+                    Text(locationManager.isCurrentlyDriving ? "End Shift" : "Start Shift")
+                        .font(.title2).bold()
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(locationManager.isCurrentlyDriving ? Color.red : Color.green)
+                        .cornerRadius(15)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 10)
             }
             .navigationTitle("Gig Tracker")
+            .navigationBarTitleDisplayMode(.inline) // FIX: Changes giant floating text to a small, neat top bar
+            .toolbarBackground(.visible, for: .navigationBar) // FIX: Forces the top bar to be solid
         }
     }
 }
@@ -138,6 +142,8 @@ struct TripsListView: View {
                 }
             }
             .navigationTitle("Trip Log")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
         }
     }
 }
@@ -197,53 +203,53 @@ struct ReportsView: View {
     
     var body: some View {
         NavigationStack {
-            // FIX: ScrollView keeps content centered and away from the Tab Bar
-            ScrollView {
-                VStack(spacing: 30) {
-                    Image(systemName: "doc.text.magnifyingglass")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 80, height: 80)
-                        .foregroundColor(.blue)
-                        .padding(.top, 40)
-                    
-                    Text("CRA Logbook Export")
-                        .font(.title2).bold()
-                    
-                    Text("Generate a CSV spreadsheet of all your logged trips for tax purposes.")
-                        .multilineTextAlignment(.center)
-                        .foregroundColor(.gray)
-                        .padding(.horizontal)
-                        .fixedSize(horizontal: false, vertical: true) // FIX: Prevents text from being cut off
-                    
-                    if let url = csvURL {
-                        ShareLink(item: url) {
-                            Text("Export CSV File")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.blue)
-                                .cornerRadius(15)
-                        }
-                        .padding(.horizontal)
-                        .padding(.top, 20)
-                    } else {
-                        Button(action: generateCSV) {
-                            Text("Generate Report")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.green)
-                                .cornerRadius(15)
-                        }
-                        .padding(.horizontal)
-                        .padding(.top, 20)
+            // FIX: Removed scroll view to lock elements in place
+            VStack(spacing: 30) {
+                Image(systemName: "doc.text.magnifyingglass")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 80, height: 80)
+                    .foregroundColor(.blue)
+                    .padding(.top, 40)
+                
+                Text("CRA Logbook Export")
+                    .font(.title2).bold()
+                
+                Text("Generate a CSV spreadsheet of all your logged trips for tax purposes.")
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.gray)
+                    .padding(.horizontal)
+                    .fixedSize(horizontal: false, vertical: true)
+                
+                if let url = csvURL {
+                    ShareLink(item: url) {
+                        Text("Export CSV File")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                            .cornerRadius(15)
                     }
+                    .padding(.horizontal)
+                } else {
+                    Button(action: generateCSV) {
+                        Text("Generate Report")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.green)
+                            .cornerRadius(15)
+                    }
+                    .padding(.horizontal)
                 }
+                
+                Spacer() // Pushes everything up slightly so it looks balanced
             }
             .navigationTitle("Reports")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
         }
     }
     
