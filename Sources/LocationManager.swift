@@ -5,7 +5,6 @@ import MapKit
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     
-    // Variables required by ContentView
     @Published var region = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 49.2827, longitude: -123.1207),
         span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
@@ -20,18 +19,26 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     var startLocation: CLLocation?
     var endLocation: CLLocation?
     
+    // The missing closure your dashboard uses to log the trip
+    var onTripFinished: ((Double, CLLocation?, CLLocation?, Date) -> Void)?
+    
     override init() {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
-        manager.distanceFilter = 10 // Updates every 10 meters for breadcrumb accuracy
+        manager.distanceFilter = 10 
     }
     
     func requestPermissions() {
         manager.requestAlwaysAuthorization()
         manager.startUpdatingLocation()
+    }
+    
+    // The missing function your dashboard uses to update the odometer
+    func saveBaseOdometer(reading: Double) {
+        baseOdometerReading = reading
     }
     
     func startShift() {
@@ -50,22 +57,23 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         isTracking = false
         endLocation = manager.location
         businessKilometersDriven += currentShiftDistance
+        
+        // Trigger the dashboard update when the shift ends
+        onTripFinished?(currentShiftDistance, startLocation, endLocation, Date())
     }
     
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         
-        // Accumulate distance breadcrumbs step-by-step
         if isTracking {
             if let previous = lastLocation {
-                let distanceDelta = location.distance(from: previous) // distance in meters
-                currentShiftDistance += (distanceDelta / 1000.0) // convert to kilometers
+                let distanceDelta = location.distance(from: previous) 
+                currentShiftDistance += (distanceDelta / 1000.0) 
             }
             lastLocation = location
             currentTripRoute.append(location.coordinate)
         }
         
-        // Keep map centered
         DispatchQueue.main.async {
             self.region = MKCoordinateRegion(
                 center: location.coordinate,
