@@ -11,7 +11,14 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
     )
     @Published var currentShiftDistance: Double = 0.0
-    @Published var baseOdometerReading: Double = 0.0
+    
+    // Permanently save base odometer in UserDefaults so it survives app restarts
+    @Published var baseOdometerReading: Double {
+        didSet {
+            UserDefaults.standard.set(baseOdometerReading, forKey: "saved_base_odometer")
+        }
+    }
+    
     @Published var isTracking = false
     @Published var isCurrentlyDriving = false
     @Published var currentTripRoute: [CLLocationCoordinate2D] = []
@@ -20,11 +27,13 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     var startLocation: CLLocation?
     var endLocation: CLLocation?
     
-    // Added the route array to the output so the map can draw it later
     var onTripFinished: ((Double, String, String, Date, [CLLocationCoordinate2D]) -> Void)?
     
     override init() {
+        // Load saved base odometer or default to 0.0
+        self.baseOdometerReading = UserDefaults.standard.double(forKey: "saved_base_odometer")
         super.init()
+        
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.allowsBackgroundLocationUpdates = true
@@ -79,7 +88,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         
         if let end = endLocation {
             group.enter()
-            geocoder.reverseGeocodeLocation(end) { placemarks, _ in
+            geocoder.reverseGeocoderLocation(end) { placemarks, _ in
                 if let p = placemarks?.first {
                     endAddressString = [p.subThoroughfare, p.thoroughfare, p.locality].compactMap { $0 }.joined(separator: " ")
                 }
