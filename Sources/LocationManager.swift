@@ -12,7 +12,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     )
     @Published var currentShiftDistance: Double = 0.0
     
-    // Permanently save base odometer in UserDefaults so it survives app restarts
+    // Permanently saves base odometer in UserDefaults so it survives app restarts
     @Published var baseOdometerReading: Double {
         didSet {
             UserDefaults.standard.set(baseOdometerReading, forKey: "saved_base_odometer")
@@ -30,7 +30,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     var onTripFinished: ((Double, String, String, Date, [CLLocationCoordinate2D]) -> Void)?
     
     override init() {
-        // Load saved base odometer or default to 0.0
         self.baseOdometerReading = UserDefaults.standard.double(forKey: "saved_base_odometer")
         super.init()
         
@@ -88,7 +87,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         
         if let end = endLocation {
             group.enter()
-            geocoder.reverseGeocoderLocation(end) { placemarks, _ in
+            // Fixed typo from reverseGeocoderLocation to reverseGeocodeLocation
+            geocoder.reverseGeocodeLocation(end) { placemarks, _ in
                 if let p = placemarks?.first {
                     endAddressString = [p.subThoroughfare, p.thoroughfare, p.locality].compactMap { $0 }.joined(separator: " ")
                 }
