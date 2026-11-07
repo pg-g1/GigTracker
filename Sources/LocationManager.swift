@@ -12,17 +12,16 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     )
     @Published var currentShiftDistance: Double = 0.0
     @Published var baseOdometerReading: Double = 0.0
-    @Published var businessKilometersDriven: Double = 0.0
     @Published var isTracking = false
-    @Published var isCurrentlyDriving = false // Restored button state variable
+    @Published var isCurrentlyDriving = false
     @Published var currentTripRoute: [CLLocationCoordinate2D] = []
     
     private var lastLocation: CLLocation?
     var startLocation: CLLocation?
     var endLocation: CLLocation?
     
-    // Updated to send String addresses to match the logbook's expectations
-    var onTripFinished: ((Double, String, String, Date) -> Void)?
+    // Added the route array to the output so the map can draw it later
+    var onTripFinished: ((Double, String, String, Date, [CLLocationCoordinate2D]) -> Void)?
     
     override init() {
         super.init()
@@ -42,13 +41,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         baseOdometerReading = reading
     }
     
-    // Restored toggle function for the dashboard button
     func toggleManualTracking() {
-        if isCurrentlyDriving {
-            stopShift()
-        } else {
-            startShift()
-        }
+        if isCurrentlyDriving { stopShift() } else { startShift() }
     }
     
     func startShift() {
@@ -68,16 +62,14 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         isTracking = false
         isCurrentlyDriving = false
         endLocation = manager.location
-        businessKilometersDriven += currentShiftDistance
         
-        // Convert GPS coordinates to physical street addresses before saving
         let group = DispatchGroup()
-        var startAddressString = "Unknown Start Location"
-        var endAddressString = "Unknown End Location"
+        var startAddressString = "Unknown Start"
+        var endAddressString = "Unknown End"
         
         if let start = startLocation {
             group.enter()
-            geocoder.reverseGeocodeLocation(start) { placemarks, error in
+            geocoder.reverseGeocodeLocation(start) { placemarks, _ in
                 if let p = placemarks?.first {
                     startAddressString = [p.subThoroughfare, p.thoroughfare, p.locality].compactMap { $0 }.joined(separator: " ")
                 }
@@ -87,7 +79,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         
         if let end = endLocation {
             group.enter()
-            geocoder.reverseGeocodeLocation(end) { placemarks, error in
+            geocoder.reverseGeocodeLocation(end) { placemarks, _ in
                 if let p = placemarks?.first {
                     endAddressString = [p.subThoroughfare, p.thoroughfare, p.locality].compactMap { $0 }.joined(separator: " ")
                 }
@@ -95,9 +87,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             }
         }
         
-        // Wait for addresses to resolve, then send the final data to the logbook
         group.notify(queue: .main) {
-            self.onTripFinished?(self.currentShiftDistance, startAddressString, endAddressString, Date())
+            self.onTripFinished?(self.currentShiftDistance, startAddressString, endAddressString, Date(), self.currentTripRoute)
         }
     }
     
@@ -114,10 +105,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
         
         DispatchQueue.main.async {
-            self.region = MKCoordinateRegion(
-                center: location.coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-            )
+            self.region = MKCoordinateRegion(center: location.coordinate, span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))
         }
     }
 }
