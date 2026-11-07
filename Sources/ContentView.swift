@@ -11,15 +11,12 @@ struct ContentView: View {
         TabView {
             DashboardView(locationManager: locationManager)
                 .tabItem { Label("Drive", systemImage: "car.fill") }
-                .toolbarBackground(.visible, for: .tabBar) // Forces solid tab bar
             
             TripsListView()
                 .tabItem { Label("Logbook", systemImage: "list.bullet.clipboard") }
-                .toolbarBackground(.visible, for: .tabBar)
             
             ReportsView()
                 .tabItem { Label("Reports", systemImage: "square.and.arrow.up") }
-                .toolbarBackground(.visible, for: .tabBar)
         }
         .onAppear {
             locationManager.requestPermissions()
@@ -34,36 +31,37 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Tab 1: Dashboard
+// MARK: - Tab 1: Dashboard (Native Form Layout)
 struct DashboardView: View {
     @ObservedObject var locationManager: LocationManager
     @State private var odometerInput: String = ""
     
     var body: some View {
         NavigationStack {
-            // FIX: Removed ScrollView. A dashboard should be locked in place.
-            VStack(spacing: 15) {
-                // Map
-                Map(coordinateRegion: $locationManager.region, showsUserLocation: true)
-                    .frame(height: 220) // Slightly smaller to ensure a perfect fit
-                    .clipShape(RoundedRectangle(cornerRadius: 15))
-                    .padding(.horizontal)
-                    .padding(.top, 10)
+            Form {
+                // Section 1: Edge-to-edge Map
+                Section {
+                    Map(coordinateRegion: $locationManager.region, showsUserLocation: true)
+                        .frame(height: 250)
+                        .listRowInsets(EdgeInsets()) // Pushes the map flush to the edges of the card
+                }
                 
-                // Odometer & Shift Stats
-                VStack(spacing: 15) {
+                // Section 2: Odometer Stats
+                Section(header: Text("Shift Stats")) {
                     HStack {
-                        Text("Shift Distance:")
-                            .font(.headline)
+                        Text("Shift Distance")
                         Spacer()
                         Text(String(format: "%.2f km", locationManager.currentShiftDistance))
-                            .font(.title3).bold()
+                            .foregroundColor(.secondary)
                     }
                     
                     HStack {
-                        TextField("Base Odometer", text: $odometerInput)
+                        Text("Base Odometer")
+                        Spacer()
+                        TextField("e.g. 45000", text: $odometerInput)
                             .keyboardType(.decimalPad)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 100)
                         
                         Button("Set") {
                             if let val = Double(odometerInput) {
@@ -71,47 +69,37 @@ struct DashboardView: View {
                                 odometerInput = ""
                             }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.borderless)
+                        .foregroundColor(.blue)
                     }
                     
                     HStack {
-                        Text("Current Odometer:")
-                            .font(.subheadline).foregroundColor(.gray)
+                        Text("Current Odometer")
                         Spacer()
                         Text(String(format: "%.2f km", locationManager.baseOdometerReading + locationManager.currentShiftDistance))
-                            .font(.headline)
+                            .foregroundColor(.secondary)
                     }
                 }
-                .padding()
-                .background(Color(.systemGray6))
-                .cornerRadius(15)
-                .padding(.horizontal)
                 
-                Spacer() // Pushes the button cleanly to the bottom
-                
-                // Start/Stop Button
-                Button(action: {
-                    locationManager.toggleManualTracking()
-                }) {
-                    Text(locationManager.isCurrentlyDriving ? "End Shift" : "Start Shift")
-                        .font(.title2).bold()
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(locationManager.isCurrentlyDriving ? Color.red : Color.green)
-                        .cornerRadius(15)
+                // Section 3: Action Button
+                Section {
+                    Button(action: {
+                        locationManager.toggleManualTracking()
+                    }) {
+                        Text(locationManager.isCurrentlyDriving ? "End Shift" : "Start Shift")
+                            .font(.headline)
+                            .foregroundColor(locationManager.isCurrentlyDriving ? .red : .green)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
                 }
-                .padding(.horizontal)
-                .padding(.bottom, 10)
             }
             .navigationTitle("Gig Tracker")
-            .navigationBarTitleDisplayMode(.inline) // FIX: Changes giant floating text to a small, neat top bar
-            .toolbarBackground(.visible, for: .navigationBar) // FIX: Forces the top bar to be solid
+            // Removed inline locks so iOS can use the native Large Title that collapses when you scroll
         }
     }
 }
 
-// MARK: - Tab 2: Logbook (Trips List)
+// MARK: - Tab 2: Logbook (Native List Layout)
 struct TripsListView: View {
     @Query(sort: \Trip.date, order: .reverse) var trips: [Trip]
     @Environment(\.modelContext) private var modelContext
@@ -119,20 +107,27 @@ struct TripsListView: View {
     var body: some View {
         NavigationStack {
             List {
+                if trips.isEmpty {
+                    Text("No trips logged yet.")
+                        .foregroundColor(.secondary)
+                }
+                
                 ForEach(trips) { trip in
                     NavigationLink(destination: TripDetailView(trip: trip)) {
-                        VStack(alignment: .leading, spacing: 5) {
+                        VStack(alignment: .leading, spacing: 4) {
                             HStack {
                                 Text(trip.date.formatted(date: .abbreviated, time: .shortened))
-                                    .font(.subheadline).bold()
+                                    .font(.headline)
                                 Spacer()
                                 Text(String(format: "%.2f km", trip.distanceInKm))
                                     .font(.subheadline)
+                                    .foregroundColor(.secondary)
                             }
                             Text(trip.tripType)
                                 .font(.caption)
-                                .foregroundColor(trip.tripType == "Business" ? .green : (trip.tripType == "Personal" ? .blue : .red))
+                                .foregroundColor(trip.tripType == "Business" ? .green : (trip.tripType == "Personal" ? .blue : .orange))
                         }
+                        .padding(.vertical, 4)
                     }
                 }
                 .onDelete { indexSet in
@@ -142,8 +137,6 @@ struct TripsListView: View {
                 }
             }
             .navigationTitle("Trip Log")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.visible, for: .navigationBar)
         }
     }
 }
@@ -170,9 +163,19 @@ struct TripDetailView: View {
             }
             
             Section(header: Text("Trip Details")) {
-                Text("Start: \(trip.startAddress)")
-                Text("End: \(trip.endAddress)")
-                Text("Distance: \(String(format: "%.2f km", trip.distanceInKm))")
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Start").font(.caption).foregroundColor(.secondary)
+                    Text(trip.startAddress)
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("End").font(.caption).foregroundColor(.secondary)
+                    Text(trip.endAddress)
+                }
+                HStack {
+                    Text("Distance")
+                    Spacer()
+                    Text(String(format: "%.2f km", trip.distanceInKm)).foregroundColor(.secondary)
+                }
             }
             
             if !routeCoordinates.isEmpty {
@@ -188,6 +191,7 @@ struct TripDetailView: View {
                         }
                     }
                     .frame(height: 250)
+                    .listRowInsets(EdgeInsets())
                 }
             }
         }
@@ -196,60 +200,53 @@ struct TripDetailView: View {
     }
 }
 
-// MARK: - Tab 3: Reports (CRA Export)
+// MARK: - Tab 3: Reports (Native Form Layout)
 struct ReportsView: View {
     @Query(sort: \Trip.date, order: .reverse) var trips: [Trip]
     @State private var csvURL: URL?
     
     var body: some View {
         NavigationStack {
-            // FIX: Removed scroll view to lock elements in place
-            VStack(spacing: 30) {
-                Image(systemName: "doc.text.magnifyingglass")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 80, height: 80)
-                    .foregroundColor(.blue)
-                    .padding(.top, 40)
-                
-                Text("CRA Logbook Export")
-                    .font(.title2).bold()
-                
-                Text("Generate a CSV spreadsheet of all your logged trips for tax purposes.")
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(.gray)
-                    .padding(.horizontal)
-                    .fixedSize(horizontal: false, vertical: true)
-                
-                if let url = csvURL {
-                    ShareLink(item: url) {
-                        Text("Export CSV File")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.blue)
-                            .cornerRadius(15)
+            Form {
+                Section {
+                    VStack(alignment: .center, spacing: 15) {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 60, height: 60)
+                            .foregroundColor(.blue)
+                        
+                        Text("CRA Logbook Export")
+                            .font(.title2).bold()
+                        
+                        Text("Generate a CSV spreadsheet of all your logged trips for tax purposes.")
+                            .multilineTextAlignment(.center)
+                            .foregroundColor(.secondary)
+                            .font(.subheadline)
                     }
-                    .padding(.horizontal)
-                } else {
-                    Button(action: generateCSV) {
-                        Text("Generate Report")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.green)
-                            .cornerRadius(15)
-                    }
-                    .padding(.horizontal)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical)
                 }
                 
-                Spacer() // Pushes everything up slightly so it looks balanced
+                Section {
+                    if let url = csvURL {
+                        ShareLink(item: url) {
+                            Label("Export CSV File", systemImage: "square.and.arrow.up")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 5)
+                        }
+                    } else {
+                        Button(action: generateCSV) {
+                            Text("Generate Report")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 5)
+                        }
+                    }
+                }
             }
             .navigationTitle("Reports")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.visible, for: .navigationBar)
         }
     }
     
