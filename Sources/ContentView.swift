@@ -21,6 +21,9 @@ struct ContentView: View {
         .onAppear {
             locationManager.requestPermissions()
             locationManager.onTripFinished = { distance, start, end, date, route in
+                // Only save trips if distance is greater than 0
+                guard distance > 0.01 else { return }
+                
                 let codableRoute = route.map { CodableCoordinate($0) }
                 let routeData = try? JSONEncoder().encode(codableRoute)
                 
@@ -35,19 +38,18 @@ struct ContentView: View {
 struct DashboardView: View {
     @ObservedObject var locationManager: LocationManager
     @State private var odometerInput: String = ""
+    @FocusState private var isKeyboardFocused: Bool // Controls keyboard dismissal
     
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    // Map Card
                     Map(coordinateRegion: $locationManager.region, showsUserLocation: true)
                         .frame(height: 220)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                         .padding(.horizontal)
                         .padding(.top, 8)
                     
-                    // Stats Card
                     VStack(spacing: 14) {
                         HStack {
                             Text("Shift Distance")
@@ -69,11 +71,13 @@ struct DashboardView: View {
                                 .keyboardType(.decimalPad)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 120)
+                                .focused($isKeyboardFocused) // Binds focus state
                             
                             Button("Set") {
                                 if let val = Double(odometerInput) {
                                     locationManager.saveBaseOdometer(reading: val)
                                     odometerInput = ""
+                                    isKeyboardFocused = false // Dismiss keyboard on tap
                                 }
                             }
                             .buttonStyle(.borderedProminent)
@@ -115,6 +119,15 @@ struct DashboardView: View {
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Gig Tracker")
             .navigationBarTitleDisplayMode(.inline)
+            // Adds a "Done" toolbar button above the number pad so it never gets stuck
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        isKeyboardFocused = false
+                    }
+                }
+            }
         }
     }
 }
