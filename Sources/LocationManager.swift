@@ -1,9 +1,11 @@
 import Foundation
 import CoreLocation
+import CoreMotion
 import MapKit
 
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
+    private let motionActivityManager = CMMotionActivityManager()
     private let geocoder = CLGeocoder()
     
     @Published var region = MKCoordinateRegion(
@@ -12,7 +14,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     )
     @Published var currentShiftDistance: Double = 0.0
     
-    // Permanently saves base odometer in UserDefaults so it survives app restarts
+    // Fixed: Properly saves precise decimal values (e.g. .23)
     @Published var baseOdometerReading: Double {
         didSet {
             UserDefaults.standard.set(baseOdometerReading, forKey: "saved_base_odometer")
@@ -37,12 +39,39 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
-        manager.distanceFilter = 10 
+        manager.distanceFilter = 5 
     }
     
     func requestPermissions() {
         manager.requestAlwaysAuthorization()
         manager.startUpdatingLocation()
+        manager.startMonitoringSignificantLocationChanges()
+        startAutomatedMotionDetection()
+    }
+    
+    // Fully automated background drive detection
+    private func startAutomatedMotionDetection() {
+        if CMMotionActivityManager.isActivityAvailable() {
+            motionActivityManager.startActivityUpdates(to: .main) { [weak self] activity in
+                guard let self = self, let activity = activity else { return }
+                
+                // If the phone detects you are driving and you aren't already tracking, auto-start!
+                if activity.automotive && !self.isCurrentlyDriving {
+                    print("🚗 Motion detected driving: Auto-starting shift...")
+                    self.startShift()
+                } 
+                // If you have been stationary for a while, auto-stop
+                else if (activity.stationary || activity.walking) && self.isCurrentlyDriving {
+                    // Give a brief delay buffer to ensure you actually stopped
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
+                        if activity.stationary && self.isCurrentlyDriving {
+                            print("🛑 Stationary detected: Auto-stopping shift...")
+                            self.stopShift()
+                        }
+                    }
+                }
+            }
+        }
     }
     
     func saveBaseOdometer(reading: Double) {
@@ -54,28 +83,38 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
     
     func startShift() {
+        guard !isCurrentlyDriving else { return }
         isTracking = true
         isCurrentlyDriving = true
         currentShiftDistance = 0.0
         currentTripRoute.removeAll()
-        startLocation = manager.location
-        lastLocation = manager.location
+        startLocation = manager.location ?? lastLocation
+        lastLocation = startLocation
         
-        if let startLoc = manager.location {
+        if let startLoc = startLocation {
             currentTripRoute.append(startLoc.coordinate)
         }
     }
     
     func stopShift() {
+        guard isCurrentlyDriving else { return }
         isTracking = false
         isCurrentlyDriving = false
-        endLocation = manager.location
+        endLocation = manager.location ?? lastLocation
+        
+        // Update permanent base odometer with the driven distance
+        baseOdometerReading += currentShiftDistance
+        
+        let capturedDistance = currentShiftDistance
+        let capturedRoute = currentTripRoute
+        let capturedStart = startLocation
+        let capturedEnd = endLocation
         
         let group = DispatchGroup()
-        var startAddressString = "Unknown Start"
-        var endAddressString = "Unknown End"
+        var startAddressString = "Start Location"
+        var endAddressString = "End Location"
         
-        if let start = startLocation {
+        if let start = capturedStart {
             group.enter()
             geocoder.reverseGeocodeLocation(start) { placemarks, _ in
                 if let p = placemarks?.first {
@@ -85,9 +124,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             }
         }
         
-        if let end = endLocation {
+        if let end = capturedEnd {
             group.enter()
-            // Fixed typo from reverseGeocoderLocation to reverseGeocodeLocation
             geocoder.reverseGeocodeLocation(end) { placemarks, _ in
                 if let p = placemarks?.first {
                     endAddressString = [p.subThoroughfare, p.thoroughfare, p.locality].compactMap { $0 }.joined(separator: " ")
@@ -97,19 +135,21 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
         
         group.notify(queue: .main) {
-            self.onTripFinished?(self.currentShiftDistance, startAddressString, endAddressString, Date(), self.currentTripRoute)
+            self.onTripFinished?(capturedDistance, startAddressString, endAddressString, Date(), capturedRoute)
         }
     }
     
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
+        lastLocation = location
         
         if isTracking {
-            if let previous = lastLocation {
-                let distanceDelta = location.distance(from: previous) 
-                currentShiftDistance += (distanceDelta / 1000.0) 
+            if let previous = lastLocation, location.timestamp.timeIntervalSince(previous.timestamp) < 10 {
+                let distanceDelta = location.distance(from: previous)
+                if distanceDelta > 1.0 { // Filter minor GPS jitter
+                    currentShiftDistance += (distanceDelta / 1000.0)
+                }
             }
-            lastLocation = location
             currentTripRoute.append(location.coordinate)
         }
         
