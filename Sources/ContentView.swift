@@ -20,7 +20,6 @@ struct ContentView: View {
         .onAppear {
             locationManager.requestPermissions()
             locationManager.onTripFinished = { distance, start, end, date, route in
-                // Fixed: Allows short test blocks to save immediately without filtering out small distances
                 let codableRoute = route.map { CodableCoordinate($0) }
                 let routeData = try? JSONEncoder().encode(codableRoute)
                 
@@ -64,7 +63,7 @@ struct DashboardView: View {
                                 .foregroundColor(.secondary)
                             Spacer()
                             TextField("e.g. 81126.23", text: $odometerInput)
-                                .keyboardType(.decimalPad) // Supports decimals like .23
+                                .keyboardType(.decimalPad)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 130)
                                 .focused($isKeyboardFocused)
@@ -115,6 +114,16 @@ struct DashboardView: View {
             .navigationTitle("Gig Tracker")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // BUG ICON: Tap to test a drive
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: {
+                        locationManager.runSimulation()
+                    }) {
+                        Image(systemName: "ladybug.fill")
+                            .foregroundColor(.orange)
+                    }
+                }
+                // DONE BUTTON: Dismisses keyboard
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Done") {
