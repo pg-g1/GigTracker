@@ -3,10 +3,8 @@ import CoreLocation
 import MapKit
 
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
-    private let manager = CLLocationManager()
+    let manager = CLLocationManager()
     private let geocoder = CLGeocoder()
-    
-    // Timer to safely handle red lights and traffic without ending the shift
     private var stopTimer: Timer?
     
     @Published var region = MKCoordinateRegion(
@@ -39,7 +37,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
-        // Lower distance filter to ensure we get pings even when moving slowly
         manager.distanceFilter = 3.0 
     }
     
@@ -65,7 +62,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     func startShift() {
         guard !isCurrentlyDriving else { return }
-        print("🚗 GPS Speed > 15 km/h: Auto-starting shift.")
         isTracking = true
         isCurrentlyDriving = true
         currentShiftDistance = 0.0
@@ -79,7 +75,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     func stopShift() {
         guard isCurrentlyDriving else { return }
-        print("🛑 Vehicle stopped for 3 minutes: Auto-stopping shift.")
         isTracking = false
         isCurrentlyDriving = false
         endLocation = manager.location ?? lastLocation
@@ -101,7 +96,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 if let p = placemarks?.first {
                     startAddressString = [p.subThoroughfare, p.thoroughfare, p.locality].compactMap { $0 }.joined(separator: " ")
                 } else {
-                    // FIX: If the address lookup fails, save the raw coordinates so the trip isn't lost
                     startAddressString = "Lat: \(String(format: "%.4f", start.coordinate.latitude)), Lon: \(String(format: "%.4f", start.coordinate.longitude))"
                 }
                 group.leave()
@@ -128,9 +122,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         
-        let currentSpeed = location.speed // Speed is measured in meters per second
+        let currentSpeed = location.speed 
         
-        // 1. AUTO-START: If speed exceeds ~15 km/h (4.0 m/s), you are driving
         if currentSpeed > 4.0 {
             stopTimer?.invalidate()
             stopTimer = nil
@@ -139,10 +132,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 startShift()
             }
         } 
-        // 2. AUTO-STOP: If speed drops below ~3 km/h (1.0 m/s), you are stopped
         else if currentSpeed >= 0 && currentSpeed < 1.0 {
             if isCurrentlyDriving && stopTimer == nil {
-                // Wait 180 seconds (3 minutes) before ending the shift to account for red lights
                 stopTimer = Timer.scheduledTimer(withTimeInterval: 180.0, repeats: false) { [weak self] _ in
                     self?.stopShift()
                     self?.stopTimer = nil
@@ -150,11 +141,9 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             }
         }
         
-        // 3. LOG DISTANCE
         if isTracking {
             if let previous = lastLocation {
                 let distanceDelta = location.distance(from: previous)
-                // Filter out massive GPS glitches and tiny drifts
                 if distanceDelta > 3.0 && distanceDelta < 1000.0 { 
                     currentShiftDistance += (distanceDelta / 1000.0)
                 }
@@ -166,6 +155,44 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         
         DispatchQueue.main.async {
             self.region = MKCoordinateRegion(center: location.coordinate, span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))
+        }
+    }
+    
+    // MARK: - Debug Simulator
+    func runSimulation() {
+        print("Starting simulated drive...")
+        // Starts the fake drive near Kwantlen / 72 Ave in Surrey
+        var currentLat = 49.1328
+        var currentLon = -122.8714
+        var step = 0
+        
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
+            guard let self = self else { return }
+            step += 1
+            
+            // Moves the fake GPS coordinates slightly north every second
+            currentLat += 0.0002
+            
+            // Simulates driving at 36 km/h (10 m/s) for 15 seconds, then dropping to 0
+            let simulatedSpeed: CLLocationSpeed = step <= 15 ? 10.0 : 0.0
+            
+            let simulatedLocation = CLLocation(
+                coordinate: CLLocationCoordinate2D(latitude: currentLat, longitude: currentLon),
+                altitude: 10,
+                horizontalAccuracy: 5,
+                verticalAccuracy: 5,
+                course: 0,
+                speed: simulatedSpeed,
+                timestamp: Date()
+            )
+            
+            // Feeds the fake location directly into the app's brain
+            self.locationManager(self.manager, didUpdateLocations: [simulatedLocation])
+            
+            // Stop the simulation after 20 seconds
+            if step > 20 {
+                timer.invalidate()
+            }
         }
     }
 }
