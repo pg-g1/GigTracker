@@ -7,12 +7,12 @@ class Trip {
     var id: UUID
     var date: Date
     var distanceInKm: Double
-    var startAddress: String
-    var endAddress: String
-    var tripType: String // "Unclassified", "Business", "Personal"
-    var routeData: Data? // Saves the GPS breadcrumbs for the map
+    var startAddress: String // Can be updated later
+    var endAddress: String   // Can be updated later
+    var tripType: String 
+    var routeData: Data? 
     
-    init(date: Date, distanceInKm: Double, startAddress: String, endAddress: String, tripType: String = "Unclassified", routeData: Data? = nil) {
+    init(date: Date, distanceInKm: Double, startAddress: String = "Fetching Address...", endAddress: String = "Fetching Address...", tripType: String = "Unclassified", routeData: Data? = nil) {
         self.id = UUID()
         self.date = date
         self.distanceInKm = distanceInKm
@@ -23,7 +23,6 @@ class Trip {
     }
 }
 
-// Helper to convert GPS coordinates so they can be saved to the database
 struct CodableCoordinate: Codable {
     let latitude: Double
     let longitude: Double
