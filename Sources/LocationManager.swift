@@ -4,7 +4,6 @@ import MapKit
 
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     let manager = CLLocationManager()
-    private let geocoder = CLGeocoder()
     private var stopTimer: Timer?
     
     @Published var region = MKCoordinateRegion(
@@ -24,10 +23,9 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var currentTripRoute: [CLLocationCoordinate2D] = []
     
     private var lastLocation: CLLocation?
-    var startLocation: CLLocation?
-    var endLocation: CLLocation?
     
-    var onTripFinished: ((Double, String, String, Date, [CLLocationCoordinate2D]) -> Void)?
+    // Simplified callback: No more crashing geocoder lookups here
+    var onTripFinished: ((Double, Date, [CLLocationCoordinate2D]) -> Void)?
     
     override init() {
         self.baseOdometerReading = UserDefaults.standard.double(forKey: "saved_base_odometer")
@@ -66,9 +64,9 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         isCurrentlyDriving = true
         currentShiftDistance = 0.0
         currentTripRoute.removeAll()
-        startLocation = manager.location ?? lastLocation
+        lastLocation = manager.location
         
-        if let startLoc = startLocation {
+        if let startLoc = manager.location {
             currentTripRoute.append(startLoc.coordinate)
         }
     }
@@ -77,46 +75,19 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         guard isCurrentlyDriving else { return }
         isTracking = false
         isCurrentlyDriving = false
-        endLocation = manager.location ?? lastLocation
         
         baseOdometerReading += currentShiftDistance
         
         let capturedDistance = currentShiftDistance
         let capturedRoute = currentTripRoute
-        let capturedStart = startLocation
-        let capturedEnd = endLocation
         
-        let group = DispatchGroup()
-        var startAddressString = "Unknown Start Location"
-        var endAddressString = "Unknown End Location"
-        
-        if let start = capturedStart {
-            group.enter()
-            geocoder.reverseGeocodeLocation(start) { placemarks, error in
-                if let p = placemarks?.first {
-                    startAddressString = [p.subThoroughfare, p.thoroughfare, p.locality].compactMap { $0 }.joined(separator: " ")
-                } else {
-                    startAddressString = "Lat: \(String(format: "%.4f", start.coordinate.latitude)), Lon: \(String(format: "%.4f", start.coordinate.longitude))"
-                }
-                group.leave()
-            }
+        // Instantly trigger the save to SwiftData without waiting for Apple Servers
+        DispatchQueue.main.async {
+            self.onTripFinished?(capturedDistance, Date(), capturedRoute)
         }
         
-        if let end = capturedEnd {
-            group.enter()
-            geocoder.reverseGeocodeLocation(end) { placemarks, error in
-                if let p = placemarks?.first {
-                    endAddressString = [p.subThoroughfare, p.thoroughfare, p.locality].compactMap { $0 }.joined(separator: " ")
-                } else {
-                    endAddressString = "Lat: \(String(format: "%.4f", end.coordinate.latitude)), Lon: \(String(format: "%.4f", end.coordinate.longitude))"
-                }
-                group.leave()
-            }
-        }
-        
-        group.notify(queue: .main) {
-            self.onTripFinished?(capturedDistance, startAddressString, endAddressString, Date(), capturedRoute)
-        }
+        // Reset dashboard distance for the next trip
+        currentShiftDistance = 0.0
     }
     
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
@@ -158,10 +129,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
     }
     
-    // MARK: - Debug Simulator
     func runSimulation() {
         print("Starting simulated drive...")
-        // Starts the fake drive near Kwantlen / 72 Ave in Surrey
         var currentLat = 49.1328
         var currentLon = -122.8714
         var step = 0
@@ -170,10 +139,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             guard let self = self else { return }
             step += 1
             
-            // Moves the fake GPS coordinates slightly north every second
             currentLat += 0.0002
             
-            // Simulates driving at 36 km/h (10 m/s) for 15 seconds, then dropping to 0
             let simulatedSpeed: CLLocationSpeed = step <= 15 ? 10.0 : 0.0
             
             let simulatedLocation = CLLocation(
@@ -186,10 +153,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 timestamp: Date()
             )
             
-            // Feeds the fake location directly into the app's brain
             self.locationManager(self.manager, didUpdateLocations: [simulatedLocation])
             
-            // Stop the simulation after 20 seconds
             if step > 20 {
                 timer.invalidate()
             }
