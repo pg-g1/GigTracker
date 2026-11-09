@@ -6,6 +6,9 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     let manager = CLLocationManager()
     private var stopTimer: Timer?
     
+    // FIX: A rolling buffer of recent locations to retroactively capture driveway exits
+    private var recentBreadcrumbs: [CLLocation] = []
+    
     @Published var region = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 49.2827, longitude: -123.1207),
         span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
@@ -13,9 +16,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var currentShiftDistance: Double = 0.0
     
     @Published var baseOdometerReading: Double {
-        didSet {
-            UserDefaults.standard.set(baseOdometerReading, forKey: "saved_base_odometer")
-        }
+        didSet { UserDefaults.standard.set(baseOdometerReading, forKey: "saved_base_odometer") }
     }
     
     @Published var isTracking = false
@@ -24,7 +25,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     private var lastLocation: CLLocation?
     
-    // Simplified callback: No more crashing geocoder lookups here
     var onTripFinished: ((Double, Date, [CLLocationCoordinate2D]) -> Void)?
     
     override init() {
@@ -35,7 +35,11 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
-        manager.distanceFilter = 3.0 
+        
+        // FIX: Forces iOS to keep tracking turn-by-turn curves instead of straight lines
+        manager.activityType = .automotiveNavigation
+        manager.showsBackgroundLocationIndicator = true 
+        manager.distanceFilter = kCLDistanceFilterNone
     }
     
     func requestPermissions() {
@@ -81,26 +85,45 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         let capturedDistance = currentShiftDistance
         let capturedRoute = currentTripRoute
         
-        // Instantly trigger the save to SwiftData without waiting for Apple Servers
         DispatchQueue.main.async {
             self.onTripFinished?(capturedDistance, Date(), capturedRoute)
         }
         
-        // Reset dashboard distance for the next trip
         currentShiftDistance = 0.0
     }
     
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         
+        // Maintain a 30-second rolling buffer of breadcrumbs
+        recentBreadcrumbs.append(location)
+        recentBreadcrumbs.removeAll { $0.timestamp.timeIntervalSinceNow < -30 }
+        
         let currentSpeed = location.speed 
         
-        if currentSpeed > 4.0 {
+        // FIX: Trigger at just 9 km/h (2.5 m/s) for ultra-fast response
+        if currentSpeed > 2.5 {
             stopTimer?.invalidate()
             stopTimer = nil
             
             if !isCurrentlyDriving {
-                startShift()
+                isTracking = true
+                isCurrentlyDriving = true
+                currentShiftDistance = 0.0
+                currentTripRoute.removeAll()
+                
+                // Inject the last 30 seconds of breadcrumbs to map the driveway exit
+                let validBreadcrumbs = recentBreadcrumbs
+                for crumb in validBreadcrumbs {
+                    currentTripRoute.append(crumb.coordinate)
+                }
+                
+                if validBreadcrumbs.count > 1 {
+                    for i in 1..<validBreadcrumbs.count {
+                        currentShiftDistance += (validBreadcrumbs[i].distance(from: validBreadcrumbs[i-1]) / 1000.0)
+                    }
+                }
+                lastLocation = location
             }
         } 
         else if currentSpeed >= 0 && currentSpeed < 1.0 {
@@ -115,14 +138,16 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         if isTracking {
             if let previous = lastLocation {
                 let distanceDelta = location.distance(from: previous)
-                if distanceDelta > 3.0 && distanceDelta < 1000.0 { 
+                // Maps every curve if you move more than 2 meters
+                if distanceDelta > 2.0 && distanceDelta < 1000.0 { 
                     currentShiftDistance += (distanceDelta / 1000.0)
+                    currentTripRoute.append(location.coordinate)
+                    lastLocation = location
                 }
+            } else {
+                lastLocation = location
             }
-            currentTripRoute.append(location.coordinate)
         }
-        
-        lastLocation = location
         
         DispatchQueue.main.async {
             self.region = MKCoordinateRegion(center: location.coordinate, span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01))
@@ -138,26 +163,17 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
             guard let self = self else { return }
             step += 1
-            
             currentLat += 0.0002
-            
             let simulatedSpeed: CLLocationSpeed = step <= 15 ? 10.0 : 0.0
             
             let simulatedLocation = CLLocation(
                 coordinate: CLLocationCoordinate2D(latitude: currentLat, longitude: currentLon),
-                altitude: 10,
-                horizontalAccuracy: 5,
-                verticalAccuracy: 5,
-                course: 0,
-                speed: simulatedSpeed,
-                timestamp: Date()
+                altitude: 10, horizontalAccuracy: 5, verticalAccuracy: 5, course: 0,
+                speed: simulatedSpeed, timestamp: Date()
             )
             
             self.locationManager(self.manager, didUpdateLocations: [simulatedLocation])
-            
-            if step > 20 {
-                timer.invalidate()
-            }
+            if step > 20 { timer.invalidate() }
         }
     }
 }
