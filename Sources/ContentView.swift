@@ -21,7 +21,6 @@ struct ContentView: View {
             locationManager.requestPermissions()
             locationManager.onTripFinished = { distance, date, route in
                 
-                // Only save trips longer than 10 meters to avoid saving parking lot drift
                 guard distance > 0.01 else { return }
                 
                 let codableRoute = route.map { CodableCoordinate($0) }
@@ -30,12 +29,35 @@ struct ContentView: View {
                 let newTrip = Trip(
                     date: date, 
                     distanceInKm: distance, 
-                    startAddress: "Pending Translation", 
-                    endAddress: "Pending Translation", 
+                    startAddress: "Resolving address...", 
+                    endAddress: "Resolving address...", 
                     tripType: "Unclassified", 
                     routeData: routeData
                 )
+                // Save the trip instantly
                 modelContext.insert(newTrip)
+                
+                // FIX: Asynchronously translate the address so it doesn't crash the save
+                Task { @MainActor in
+                    let geocoder = CLGeocoder()
+                    if let start = route.first {
+                        let startLoc = CLLocation(latitude: start.latitude, longitude: start.longitude)
+                        if let placemarks = try? await geocoder.reverseGeocodeLocation(startLoc), let p = placemarks.first {
+                            newTrip.startAddress = [p.subThoroughfare, p.thoroughfare, p.locality].compactMap { $0 }.joined(separator: " ")
+                        } else {
+                            newTrip.startAddress = "Location Saved"
+                        }
+                    }
+                    
+                    if let end = route.last {
+                        let endLoc = CLLocation(latitude: end.latitude, longitude: end.longitude)
+                        if let placemarks = try? await geocoder.reverseGeocodeLocation(endLoc), let p = placemarks.first {
+                            newTrip.endAddress = [p.subThoroughfare, p.thoroughfare, p.locality].compactMap { $0 }.joined(separator: " ")
+                        } else {
+                            newTrip.endAddress = "Location Saved"
+                        }
+                    }
+                }
             }
         }
     }
@@ -125,7 +147,6 @@ struct DashboardView: View {
             .navigationTitle("Gig Tracker")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                // BUG ICON: Tap to test a drive
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: {
                         locationManager.runSimulation()
@@ -134,7 +155,6 @@ struct DashboardView: View {
                             .foregroundColor(.orange)
                     }
                 }
-                // DONE BUTTON: Dismisses keyboard
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Done") {
@@ -316,7 +336,9 @@ struct ReportsView: View {
             csvString += "\(dateStr),\(trip.tripType),\(String(format: "%.2f", trip.distanceInKm)),\(safeStart),\(safeEnd)\n"
         }
         
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("CRA_Mileage_Log.csv")
+        // FIX: Appends the exact second to the file name so iOS never caches it
+        let fileName = "CRA_Mileage_Log_\(Int(Date().timeIntervalSince1970)).csv"
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
         do {
             try csvString.write(to: tempURL, atomically: true, encoding: .utf8)
             csvURL = tempURL
