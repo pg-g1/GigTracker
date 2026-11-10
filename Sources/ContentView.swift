@@ -21,7 +21,11 @@ struct ContentView: View {
             locationManager.requestPermissions()
             locationManager.onTripFinished = { distance, date, route in
                 
-                guard distance > 0.01 else { return }
+                // FIX: Ignore phantom indoor GPS drift and trips under 200 meters (0.2 km)
+                guard distance > 0.2 else { 
+                    print("Trip too short, discarding.")
+                    return 
+                }
                 
                 let codableRoute = route.map { CodableCoordinate($0) }
                 let routeData = try? JSONEncoder().encode(codableRoute)
@@ -37,7 +41,7 @@ struct ContentView: View {
                 // Save the trip instantly
                 modelContext.insert(newTrip)
                 
-                // FIX: Asynchronously translate the address so it doesn't crash the save
+                // Asynchronously translate the address so it doesn't crash the save
                 Task { @MainActor in
                     let geocoder = CLGeocoder()
                     if let start = route.first {
@@ -336,7 +340,6 @@ struct ReportsView: View {
             csvString += "\(dateStr),\(trip.tripType),\(String(format: "%.2f", trip.distanceInKm)),\(safeStart),\(safeEnd)\n"
         }
         
-        // FIX: Appends the exact second to the file name so iOS never caches it
         let fileName = "CRA_Mileage_Log_\(Int(Date().timeIntervalSince1970)).csv"
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
         do {
