@@ -6,7 +6,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     let manager = CLLocationManager()
     private var stopTimer: Timer?
     
-    // FIX: A rolling buffer of recent locations to retroactively capture driveway exits
     private var recentBreadcrumbs: [CLLocation] = []
     
     @Published var region = MKCoordinateRegion(
@@ -35,8 +34,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
-        
-        // FIX: Forces iOS to keep tracking turn-by-turn curves instead of straight lines
         manager.activityType = .automotiveNavigation
         manager.showsBackgroundLocationIndicator = true 
         manager.distanceFilter = kCLDistanceFilterNone
@@ -95,13 +92,18 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         
-        // Maintain a 30-second rolling buffer of breadcrumbs
+        // --- THE ANTI-DRIFT SHIELD ---
+        // Ignore any GPS ping with an accuracy worse than 25 meters. 
+        // This makes the app totally blind to indoor bouncing.
+        guard location.horizontalAccuracy >= 0 && location.horizontalAccuracy < 25 else { 
+            return 
+        }
+        
         recentBreadcrumbs.append(location)
         recentBreadcrumbs.removeAll { $0.timestamp.timeIntervalSinceNow < -30 }
         
         let currentSpeed = location.speed 
         
-        // FIX: Trigger at just 9 km/h (2.5 m/s) for ultra-fast response
         if currentSpeed > 2.5 {
             stopTimer?.invalidate()
             stopTimer = nil
@@ -112,7 +114,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 currentShiftDistance = 0.0
                 currentTripRoute.removeAll()
                 
-                // Inject the last 30 seconds of breadcrumbs to map the driveway exit
                 let validBreadcrumbs = recentBreadcrumbs
                 for crumb in validBreadcrumbs {
                     currentTripRoute.append(crumb.coordinate)
@@ -138,7 +139,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         if isTracking {
             if let previous = lastLocation {
                 let distanceDelta = location.distance(from: previous)
-                // Maps every curve if you move more than 2 meters
                 if distanceDelta > 2.0 && distanceDelta < 1000.0 { 
                     currentShiftDistance += (distanceDelta / 1000.0)
                     currentTripRoute.append(location.coordinate)
@@ -168,6 +168,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             
             let simulatedLocation = CLLocation(
                 coordinate: CLLocationCoordinate2D(latitude: currentLat, longitude: currentLon),
+                // Notice the simulated accuracy is a perfect 5 meters
                 altitude: 10, horizontalAccuracy: 5, verticalAccuracy: 5, course: 0,
                 speed: simulatedSpeed, timestamp: Date()
             )
